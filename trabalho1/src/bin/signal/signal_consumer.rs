@@ -32,19 +32,20 @@ fn main() {
 
 fn busy_wait() {
     println!("Running BUSY WAIT");
-    loop {
-        unistd::sleep(1);
-    }
+    loop {}
 }
 
 fn blocking_wait() {
     println!("Running BLOCKING WAIT");
-    loop {}
+    loop {
+        unistd::pause();
+    }
 }
 
 extern "C" fn sigint_handler(sig: libc::c_int) {
     println!("I received a SIGINT ({}). Should I finish?", sig)
 }
+
 extern "C" fn sigquit_handler(sig: libc::c_int) {
     println!("I received SIGQUIT ({}). Should I quit?", sig)
 }
