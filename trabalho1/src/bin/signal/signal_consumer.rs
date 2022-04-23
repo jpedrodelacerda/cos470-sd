@@ -1,6 +1,7 @@
 use std::env;
 
 use nix::sys::signal::{self, SaFlags, SigAction, SigHandler, SigSet};
+use nix::unistd::Pid;
 use nix::{libc, unistd};
 
 fn main() {
@@ -20,6 +21,9 @@ fn main() {
             let _ = signal::sigaction(*signal, &sa);
         }
     }
+
+    println!("Send signals to PID {}.", Pid::this());
+
     match args[1].as_str() {
         "BUSY" => busy_wait(),
         "BLOCKING" => blocking_wait(),
