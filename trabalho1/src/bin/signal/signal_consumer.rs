@@ -1,12 +1,11 @@
 use std::env;
-use std::thread::sleep;
 
-use nix::libc;
 use nix::sys::signal::{self, SaFlags, SigAction, SigHandler, SigSet};
+use nix::{libc, unistd};
 
 fn main() {
     let args = env::args().collect::<Vec<_>>();
-    if args.len() != 2 {
+    if args.len() < 2 {
         println!("No waiting method provided. Choose BUSY or BLOCKING.");
         std::process::exit(1);
     }
@@ -34,7 +33,7 @@ fn main() {
 fn busy_wait() {
     println!("Running BUSY WAIT");
     loop {
-        sleep(std::time::Duration::from_secs(1))
+        unistd::sleep(1);
     }
 }
 
