@@ -16,13 +16,20 @@ name = "sd"
 path = "./src/lib.rs"
 
 [[bin]]
+name = "socket_consumer"
+path = "./src/bin/socket/consumer.rs"
+
+[[bin]]
+name = "socket_producer"
+path = "./src/bin/socket/producer.rs"
+
+[[bin]]
 name = "pipe"
 path = "./src/bin/pipe/main.rs"
 
 [[bin]]
 name = "signal_consumer"
 path = "./src/bin/signal/signal_consumer.rs"
-
 
 [[bin]]
 name = "signal_producer"
