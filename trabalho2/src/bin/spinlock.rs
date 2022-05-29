@@ -1,7 +1,10 @@
 use rand::prelude::*;
+use rand::SeedableRng;
 use sd::spinlock::Spinlock;
 use std::sync::Arc;
 use std::thread;
+
+const SEED: u64 = 42;
 
 fn main() {
     let k_vals = [1, 2, 4, 8, 16, 32, 64, 128, 256];
@@ -55,7 +58,8 @@ fn sum_inside_thread(vector: &[i8]) -> i32 {
 
 fn populate_random_i8(size: usize) -> Vec<i8> {
     let mut vector = vec![0; size];
-    let mut rng = rand::thread_rng();
+    let mut rng = StdRng::seed_from_u64(SEED);
+
     for i in 0..vector.len() {
         vector[i] = rng.gen_range(-100..101);
     }
