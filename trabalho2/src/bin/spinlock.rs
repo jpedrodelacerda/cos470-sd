@@ -5,12 +5,8 @@ use std::thread;
 
 fn main() {
     let k_vals = [1, 2, 4, 8, 16, 32, 64, 128, 256];
-    let n_vals = [10_i32.pow(9), 10_i32.pow(8), 10_i32.pow(7)];
-    // let n_vals = [10_i32.pow(7), 10_i32.pow(8), 10_i32.pow(9)];
-    // run_case(256, 100000000);
+    let n_vals = [10_i32.pow(7), 10_i32.pow(8), 10_i32.pow(9)];
     for n in n_vals {
-        // let vector = populate_random_i8(n as usize);
-        // let vector: Arc<Vec<i8>> = Arc::new(random_vector.to_vec());
         let vector: Arc<Vec<i8>> = Arc::new(populate_random_i8(n as usize));
         for k in k_vals {
             for _ in 0..10 {
