@@ -7,6 +7,9 @@ edition = "2021"
 
 [dependencies]
 rand = "0.8.5"
+std-semaphore = "*"
+log = "0.4.17"
+env_logger = "0.9.0"
 
 [lib]
 name = "sd"
@@ -15,3 +18,7 @@ path = "src/lib.rs"
 [[bin]]
 name = "spinlock"
 path = "src/bin/spinlock.rs"
+
+[[bin]]
+name = "semaphore"
+path = "src/bin/semaphore.rs"
