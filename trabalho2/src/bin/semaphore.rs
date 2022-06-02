@@ -1,12 +1,11 @@
 use log::{debug, info};
 use rand::prelude::*;
+use sd::semaphore::Semaphore;
 use std::fs::File;
 use std::io::prelude::*;
 use std::sync::atomic::{AtomicI32, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
-
-use std_semaphore::Semaphore;
 
 fn main() {
     // Set up env_logger so we can track what is happening
@@ -70,10 +69,9 @@ fn main() {
                     let producer_vector_mutex = Arc::clone(&vector_mutex);
                     // We initialize a Producer thread that produces indefinitely.
                     thread::spawn(move || {
+                        // Initialize random number generator
+                        let mut rng = rand::thread_rng();
                         loop {
-                            // Initialize random number generator
-                            let mut rng = rand::thread_rng();
-
                             // We need to clone both semaphores and the vector inside the ARCs.
                             let empty = Arc::clone(&producer_empty_semaphore);
                             let full = Arc::clone(&producer_full_semaphore);
@@ -82,14 +80,11 @@ fn main() {
                             // of the vector. We only do this after we have the semaphores
                             // with enough space.
                             debug!("[PRODUCER][{_p}] Acquiring EMPTY");
-                            // dbg!(&empty);
-                            debug!("[PRODUCER][{_p}] Acquiring EMPTY");
-                            empty.acquire();
+                            empty.wait();
                             debug!("[PRODUCER][{_p}] EMPTY acquired successfully.");
                             // Now we can lock the buffer Mutex.
                             debug!("[PRODUCER][{_p}] Locking VECTOR_MUTEX.");
                             let mut vector = vector_arc.lock().unwrap();
-                            // .expect("Producer {_p} failed to lock the mutex");
                             debug!("[PRODUCER][{_p}] VECTOR_MUTEX locked successfully.");
                             for i in 0..vector.len() {
                                 // If the position contains a zero, we fill the spot
@@ -113,7 +108,7 @@ fn main() {
                             // We now use the release method to signal that there is
                             // an empty space inside the buffer.
                             debug!("[PRODUCER][{_p}] Releasing FULL.");
-                            full.release();
+                            full.signal();
                             debug!("[PRODUCER][{_p}] FULL released successfully.");
                         }
                     });
@@ -136,7 +131,7 @@ fn main() {
                             // of the vector. We only do this after we have the semaphores
                             // with enough space.
                             debug!("[CONSUMER][{_c}] Acquiring FULL");
-                            full.acquire();
+                            full.wait();
                             debug!("[CONSUMER][{_c}] FULL acquired successfully");
                             // Now we can lock the buffer Mutex.
                             debug!("[CONSUMER][{_c}] Locking VECTOR_MUTEX");
@@ -181,7 +176,7 @@ fn main() {
                             // We now use the release method to signal that there is
                             // an empty space inside the buffer.
                             debug!("[CONSUMER][{_c}] Releasing EMPTY");
-                            empty.release();
+                            empty.signal();
                             debug!("[CONSUMER][{_c}] EMPTY released successfully");
                         }
                         debug!("[CONSUMER][{_c}] Finishing.");
@@ -211,8 +206,8 @@ fn main() {
     // We will write results to a file.
     let mut file = File::create("./data/semaphore_results.csv")
         .expect("Could not open '/.data/semaphore_results.csv'.");
-    for entry in results {
-        println!("{}", entry);
+    for entry in results.into_iter().skip(1) {
+        println!("Result: {}", entry);
         file.write_all(format!("{entry}\n").as_bytes()).unwrap();
     }
 }
