@@ -1,10 +1,8 @@
 use bytes::Bytes;
 use core::fmt;
-use log::debug;
-use std::io::Read;
+use log::{debug, info};
 use std::u8;
 use std::{error::Error, io::ErrorKind};
-use tokio::io::BufReader;
 use tokio::io::{self, AsyncReadExt};
 
 static SEP: &str = "|";
@@ -45,25 +43,54 @@ impl Message {
         }
     }
 
-    pub fn from_string(string: String) -> Result<Self, Box<dyn Error>> {
-        let mut split = string.split(SEP);
+    pub fn from_string(message: String) -> Result<Self, Box<dyn Error>> {
+        debug!("[MESSAGE] Trimming newline");
+        let msg_string = message.as_str();
+        debug!("[MESSAGE] Trimmed message: {}", &msg_string);
+        let mut split = msg_string.split(SEP);
 
+        debug!("[MESSAGE] Parsing message: {}", &msg_string);
+        debug!("[MESSAGE] [CODE]: Parsing");
         let msg_code = match split.next() {
             Some(msg_code_str) => msg_code_str.parse::<u8>()?,
-            None => todo!(),
+            None => {
+                return Err(Box::new(std::io::Error::new(
+                    ErrorKind::InvalidData,
+                    "failed to parse message code",
+                )));
+            }
         };
+        debug!("[MESSAGE] [CODE] Result: {}", msg_code);
+        debug!("[MESSAGE] [SENDER]: Parsing");
         let sender = match split.next() {
             Some(sender_str) => sender_str.parse::<u8>()?,
-            None => todo!(),
+            None => {
+                return Err(Box::new(std::io::Error::new(
+                    ErrorKind::InvalidData,
+                    "failed to parse sender code",
+                )))
+            }
         };
+        debug!("[MESSAGE] [SENDER] Result: {}", sender);
+        debug!("[MESSAGE] Parsing finished.");
 
-        Ok(Message::new(msg_code, sender))
+        Ok(Message::new(sender, msg_code))
     }
 
     pub fn from_bytes(raw_bytes: &[u8]) -> Result<Self, Box<dyn Error>> {
-        println!("{:?}", raw_bytes);
-        let message_utf8 = String::from_utf8(raw_bytes.to_vec())?;
-        Self::from_string(message_utf8)
+        debug!("[MESSAGE] raw bytes: {:?}", raw_bytes);
+        let mut bytes = raw_bytes.to_vec();
+        loop {
+            match bytes.last() {
+                // Trim padding bytes
+                Some(0) => bytes.pop(),
+                Some(10) => bytes.pop(),
+                _ => break,
+            };
+        }
+        let message_utf8 = String::from_utf8(bytes)?;
+        let trimmed_message = message_utf8.trim_end_matches("\n");
+        Self::from_string(trimmed_message.to_string())
     }
 }
 
@@ -113,7 +140,7 @@ mod tests {
         let _ = env_logger::builder().is_test(true).try_init();
     }
 
-    static expected: [Message; 4] = [
+    static EXPECTED: [Message; 4] = [
         Message {
             message_type: MessageType::Request,
             sender: 42,
@@ -138,32 +165,32 @@ mod tests {
 
         for (case_number, (msg_code, sender)) in cases.into_iter().enumerate() {
             let got = Message::new(msg_code, sender);
-            assert_eq!(expected[case_number], got);
+            assert_eq!(EXPECTED[case_number], got);
         }
     }
 
     #[test]
     fn create_message_from_bytes() {
-        let cases: Vec<&[u8]> = vec![
-            &[42, 124, 52, 50],
-            &[42, 124, 52, 50],
-            &[42, 124, 52, 50],
-            &[42, 124, 52, 50],
+        let cases: Vec<&[u8; 10]> = vec![
+            &[49, 124, 52, 50, 10, 0, 0, 0, 0, 0],
+            &[50, 124, 52, 50, 10, 0, 0, 0, 0, 0],
+            &[51, 124, 52, 50, 10, 0, 0, 0, 0, 0],
+            &[52, 50, 124, 52, 50, 10, 0, 0, 0, 0],
         ];
 
         for (case_number, case) in cases.into_iter().enumerate() {
             let got = Message::from_bytes(case).unwrap();
-            assert_eq!(expected[case_number], got);
+            assert_eq!(EXPECTED[case_number], got);
         }
     }
 
     #[test]
     fn create_message_from_string() {
         init();
-        let cases: Vec<String> = vec!["42|1".to_string()];
+        let cases: Vec<&str> = vec!["1|42", "2|42", "3|42", "42|42"];
         for (case_number, case) in cases.into_iter().enumerate() {
-            let got = Message::from_string(case).unwrap();
-            assert_eq!(expected[case_number], got);
+            let got = Message::from_string(case.to_string()).unwrap();
+            assert_eq!(EXPECTED[case_number], got);
         }
     }
 }
