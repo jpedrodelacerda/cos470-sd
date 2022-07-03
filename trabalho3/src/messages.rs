@@ -1,9 +1,7 @@
-use bytes::Bytes;
 use core::fmt;
-use log::{debug, info};
-use std::u8;
+use log::{debug, warn};
 use std::{error::Error, io::ErrorKind};
-use tokio::io::{self, AsyncReadExt};
+use std::{io, u8};
 
 static SEP: &str = "|";
 static SEPB: u8 = 124;
@@ -31,16 +29,19 @@ pub enum MessageType {
 
 #[derive(PartialEq, Debug)]
 pub struct Message {
-    message_type: MessageType,
-    sender: u8,
+    pub message_type: MessageType,
+    pub sender: u8,
 }
 
 impl Message {
-    pub fn new(sender: u8, message_type: u8) -> Self {
+    pub fn new(sender: u8, message_type: MessageType) -> Self {
         Self {
-            message_type: MessageType::from(message_type),
+            message_type,
             sender,
         }
+    }
+    pub fn message_type(&self) -> &MessageType {
+        &self.message_type
     }
 
     pub fn from_string(message: String) -> Result<Self, Box<dyn Error>> {
@@ -74,7 +75,7 @@ impl Message {
         debug!("[MESSAGE] [SENDER] Result: {}", sender);
         debug!("[MESSAGE] Parsing finished.");
 
-        Ok(Message::new(sender, msg_code))
+        Ok(Message::new(sender, msg_code.into()))
     }
 
     pub fn from_bytes(raw_bytes: &[u8]) -> Result<Self, Box<dyn Error>> {
@@ -88,9 +89,66 @@ impl Message {
                 _ => break,
             };
         }
-        let message_utf8 = String::from_utf8(bytes)?;
-        let trimmed_message = message_utf8.trim_end_matches("\n");
-        Self::from_string(trimmed_message.to_string())
+        let mut iter = bytes.split(|num| *num == SEPB);
+
+        debug!("[MESSAGE] [BYTES] [CODE] Parsing code");
+        let msg_code_bytes = match iter.next() {
+            Some(code) => code,
+            None => {
+                warn!("[MESSAGE] [CODE] failed parsing");
+                return Err(Box::new(io::Error::new(
+                    ErrorKind::InvalidData,
+                    "Failed to parse message code",
+                )));
+            }
+        };
+        debug!(
+            "[MESSAGE] [BYTES] [CODE] Parsing result: {:?}",
+            msg_code_bytes
+        );
+        debug!("[MESSAGE] [BYTES] [SENDER] Parsing code");
+        let msg_sender_bytes = match iter.next() {
+            Some(sender) => sender,
+            None => {
+                warn!("[MESSAGE] [SENDER] failed parsing");
+                return Err(Box::new(io::Error::new(
+                    ErrorKind::InvalidData,
+                    "Failed to parse message sender",
+                )));
+            }
+        };
+        debug!(
+            "[MESSAGE] [BYTES] [SENDER] Parsing result: {:?}",
+            msg_sender_bytes
+        );
+
+        let code_str = std::str::from_utf8(msg_code_bytes)?;
+        let sender_str = std::str::from_utf8(msg_sender_bytes)?;
+
+        let code = code_str.parse::<u8>()?;
+        let sender = sender_str.parse::<u8>()?;
+
+        Ok(Self::new(sender, code.into()))
+    }
+
+    pub fn to_bytes(&self) -> Result<[u8; 10], Box<dyn Error>> {
+        let string = format!("{}|{}", self.message_type.to_code(), self.sender);
+        debug!(
+            "[MESSAGE] [BYTES] Message string to be sent = {}",
+            string.to_owned()
+        );
+        let mut bytes = [0; 10];
+        let string_bytes = string.as_bytes();
+        if string_bytes.len() > 10 {
+            return Err(Box::new(io::Error::new(
+                ErrorKind::InvalidData,
+                "[MESSAGE] Too large",
+            )));
+        }
+        for i in 0..string_bytes.len() {
+            bytes[i] = string_bytes[i]
+        }
+        Ok(bytes)
     }
 }
 
@@ -117,7 +175,7 @@ impl MessageType {
             Self::Request => 1,
             Self::Grant => 2,
             Self::Release => 3,
-            Self::Unknown => 0,
+            Self::Unknown => 42,
         };
     }
 }
@@ -161,7 +219,12 @@ mod tests {
 
     #[test]
     fn create_message() {
-        let cases: Vec<(u8, u8)> = vec![(42, 1), (42, 2), (42, 3), (42, 42)];
+        let cases: Vec<(u8, MessageType)> = vec![
+            (42, MessageType::Request),
+            (42, MessageType::Grant),
+            (42, MessageType::Release),
+            (42, MessageType::Unknown),
+        ];
 
         for (case_number, (msg_code, sender)) in cases.into_iter().enumerate() {
             let got = Message::new(msg_code, sender);
