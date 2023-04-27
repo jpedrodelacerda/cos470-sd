@@ -1,11 +1,7 @@
-use bytes::Bytes;
 use core::fmt;
-use log::debug;
-use std::io::Read;
-use std::u8;
+use log::{debug, warn};
 use std::{error::Error, io::ErrorKind};
-use tokio::io::BufReader;
-use tokio::io::{self, AsyncReadExt};
+use std::{io, u8};
 
 static SEP: &str = "|";
 static SEPB: u8 = 124;
@@ -33,37 +29,126 @@ pub enum MessageType {
 
 #[derive(PartialEq, Debug)]
 pub struct Message {
-    message_type: MessageType,
-    sender: u8,
+    pub message_type: MessageType,
+    pub sender: u8,
 }
 
 impl Message {
-    pub fn new(sender: u8, message_type: u8) -> Self {
+    pub fn new(sender: u8, message_type: MessageType) -> Self {
         Self {
-            message_type: MessageType::from(message_type),
+            message_type,
             sender,
         }
     }
+    pub fn message_type(&self) -> &MessageType {
+        &self.message_type
+    }
 
-    pub fn from_string(string: String) -> Result<Self, Box<dyn Error>> {
-        let mut split = string.split(SEP);
+    pub fn from_string(message: String) -> Result<Self, Box<dyn Error>> {
+        debug!("[MESSAGE] Trimming newline");
+        let msg_string = message.as_str();
+        debug!("[MESSAGE] Trimmed message: {}", &msg_string);
+        let mut split = msg_string.split(SEP);
 
+        debug!("[MESSAGE] Parsing message: {}", &msg_string);
+        debug!("[MESSAGE] [CODE]: Parsing");
         let msg_code = match split.next() {
             Some(msg_code_str) => msg_code_str.parse::<u8>()?,
-            None => todo!(),
+            None => {
+                return Err(Box::new(std::io::Error::new(
+                    ErrorKind::InvalidData,
+                    "failed to parse message code",
+                )));
+            }
         };
+        debug!("[MESSAGE] [CODE] Result: {}", msg_code);
+        debug!("[MESSAGE] [SENDER]: Parsing");
         let sender = match split.next() {
             Some(sender_str) => sender_str.parse::<u8>()?,
-            None => todo!(),
+            None => {
+                return Err(Box::new(std::io::Error::new(
+                    ErrorKind::InvalidData,
+                    "failed to parse sender code",
+                )))
+            }
         };
+        debug!("[MESSAGE] [SENDER] Result: {}", sender);
+        debug!("[MESSAGE] Parsing finished.");
 
-        Ok(Message::new(msg_code, sender))
+        Ok(Message::new(sender, msg_code.into()))
     }
 
     pub fn from_bytes(raw_bytes: &[u8]) -> Result<Self, Box<dyn Error>> {
-        println!("{:?}", raw_bytes);
-        let message_utf8 = String::from_utf8(raw_bytes.to_vec())?;
-        Self::from_string(message_utf8)
+        debug!("[MESSAGE] raw bytes: {:?}", raw_bytes);
+        let mut bytes = raw_bytes.to_vec();
+        loop {
+            match bytes.last() {
+                // Trim padding bytes
+                Some(0) => bytes.pop(),
+                Some(10) => bytes.pop(),
+                _ => break,
+            };
+        }
+        let mut iter = bytes.split(|num| *num == SEPB);
+
+        debug!("[MESSAGE] [BYTES] [CODE] Parsing code");
+        let msg_code_bytes = match iter.next() {
+            Some(code) => code,
+            None => {
+                warn!("[MESSAGE] [CODE] failed parsing");
+                return Err(Box::new(io::Error::new(
+                    ErrorKind::InvalidData,
+                    "Failed to parse message code",
+                )));
+            }
+        };
+        debug!(
+            "[MESSAGE] [BYTES] [CODE] Parsing result: {:?}",
+            msg_code_bytes
+        );
+        debug!("[MESSAGE] [BYTES] [SENDER] Parsing code");
+        let msg_sender_bytes = match iter.next() {
+            Some(sender) => sender,
+            None => {
+                warn!("[MESSAGE] [SENDER] failed parsing");
+                return Err(Box::new(io::Error::new(
+                    ErrorKind::InvalidData,
+                    "Failed to parse message sender",
+                )));
+            }
+        };
+        debug!(
+            "[MESSAGE] [BYTES] [SENDER] Parsing result: {:?}",
+            msg_sender_bytes
+        );
+
+        let code_str = std::str::from_utf8(msg_code_bytes)?;
+        let sender_str = std::str::from_utf8(msg_sender_bytes)?;
+
+        let code = code_str.parse::<u8>()?;
+        let sender = sender_str.parse::<u8>()?;
+
+        Ok(Self::new(sender, code.into()))
+    }
+
+    pub fn to_bytes(&self) -> Result<[u8; 10], Box<dyn Error>> {
+        let string = format!("{}|{}", self.message_type.to_code(), self.sender);
+        debug!(
+            "[MESSAGE] [BYTES] Message string to be sent = {}",
+            string.to_owned()
+        );
+        let mut bytes = [0; 10];
+        let string_bytes = string.as_bytes();
+        if string_bytes.len() > 10 {
+            return Err(Box::new(io::Error::new(
+                ErrorKind::InvalidData,
+                "[MESSAGE] Too large",
+            )));
+        }
+        for i in 0..string_bytes.len() {
+            bytes[i] = string_bytes[i]
+        }
+        Ok(bytes)
     }
 }
 
@@ -90,7 +175,7 @@ impl MessageType {
             Self::Request => 1,
             Self::Grant => 2,
             Self::Release => 3,
-            Self::Unknown => 0,
+            Self::Unknown => 42,
         };
     }
 }
@@ -113,7 +198,7 @@ mod tests {
         let _ = env_logger::builder().is_test(true).try_init();
     }
 
-    static expected: [Message; 4] = [
+    static EXPECTED: [Message; 4] = [
         Message {
             message_type: MessageType::Request,
             sender: 42,
@@ -134,36 +219,41 @@ mod tests {
 
     #[test]
     fn create_message() {
-        let cases: Vec<(u8, u8)> = vec![(42, 1), (42, 2), (42, 3), (42, 42)];
+        let cases: Vec<(u8, MessageType)> = vec![
+            (42, MessageType::Request),
+            (42, MessageType::Grant),
+            (42, MessageType::Release),
+            (42, MessageType::Unknown),
+        ];
 
         for (case_number, (msg_code, sender)) in cases.into_iter().enumerate() {
             let got = Message::new(msg_code, sender);
-            assert_eq!(expected[case_number], got);
+            assert_eq!(EXPECTED[case_number], got);
         }
     }
 
     #[test]
     fn create_message_from_bytes() {
-        let cases: Vec<&[u8]> = vec![
-            &[42, 124, 52, 50],
-            &[42, 124, 52, 50],
-            &[42, 124, 52, 50],
-            &[42, 124, 52, 50],
+        let cases: Vec<&[u8; 10]> = vec![
+            &[49, 124, 52, 50, 10, 0, 0, 0, 0, 0],
+            &[50, 124, 52, 50, 10, 0, 0, 0, 0, 0],
+            &[51, 124, 52, 50, 10, 0, 0, 0, 0, 0],
+            &[52, 50, 124, 52, 50, 10, 0, 0, 0, 0],
         ];
 
         for (case_number, case) in cases.into_iter().enumerate() {
             let got = Message::from_bytes(case).unwrap();
-            assert_eq!(expected[case_number], got);
+            assert_eq!(EXPECTED[case_number], got);
         }
     }
 
     #[test]
     fn create_message_from_string() {
         init();
-        let cases: Vec<String> = vec!["42|1".to_string()];
+        let cases: Vec<&str> = vec!["1|42", "2|42", "3|42", "42|42"];
         for (case_number, case) in cases.into_iter().enumerate() {
-            let got = Message::from_string(case).unwrap();
-            assert_eq!(expected[case_number], got);
+            let got = Message::from_string(case.to_string()).unwrap();
+            assert_eq!(EXPECTED[case_number], got);
         }
     }
 }
